@@ -3,7 +3,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import ollama
+import requests
 import io
 import contextlib
 
@@ -11,10 +11,6 @@ import contextlib
 # Read Ollama Cloud API key from environment
 OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY")
 
-# Configure Ollama client for cloud usage
-ollama_client = ollama.Client(
-    api_key=OLLAMA_API_KEY
-)
 
 
 # Analyze dataset schema so AI understands columns
