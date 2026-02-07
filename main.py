@@ -1,33 +1,30 @@
 import os
-import requests
 import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import io
-import contextlib
+import google.generativeai as genai
 
 
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 
-def ask_openrouter_code(columns: list[str], question: str) -> str:
+def ask_gemini_code(columns: list[str], question: str) -> str:
     prompt = f"""
 You are a Python data analyst.
 
 You have a pandas DataFrame named df.
-The DataFrame columns are:
+The columns are:
 {", ".join(columns)}
 
 Rules:
-- DO NOT import anything
-- DO NOT use print
-- DO NOT access files, OS, or network
+- Do NOT import anything
+- Do NOT use print
+- Do NOT access files or network
 - Use pandas, numpy, matplotlib already available
 - Assign outputs ONLY to:
-  - result (for tables or text)
-  - fig (for matplotlib figures)
+  - result (tables or text)
+  - fig (matplotlib figure)
 - Return ONLY valid Python code
 - No markdown
 - No explanations
@@ -37,38 +34,13 @@ User request:
 {question}
 """
 
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://streamlit.app",
-        "X-Title": "AI Data Analyst"
-    }
+    model = genai.GenerativeModel("gemini-1.5-flash")
+    response = model.generate_content(prompt)
 
-    payload = {
-        "model": "openai/gpt-oss-120b:free",
-        "messages": [
-            {"role": "user", "content": prompt}
-        ],
-        "temperature": 0.2,
-        "max_tokens": 800
-    }
-
-    response = requests.post(
-        OPENROUTER_API_URL,
-        headers=headers,
-        json=payload,
-        timeout=60
-    )
-
-    if response.status_code != 200:
-        raise RuntimeError(response.text)
-
-    return response.json()["choices"][0]["message"]["content"]
+    return response.text.strip()
 
 
 def clean_ai_code(code: str) -> str:
-    code = code.strip()
-
     if code.startswith("```"):
         code = code.split("```")[1]
 
@@ -120,16 +92,12 @@ def execute_ai_code(df: pd.DataFrame, code: str):
     }
 
 
-st.set_page_config(
-    page_title="AI Data Analyst",
-    layout="wide"
-)
-
+st.set_page_config(page_title="AI Data Analyst", layout="wide")
 st.title("AI Data Analyst")
-st.caption("Ask questions → AI writes code → runs locally")
+st.caption("Gemini-powered • Chat → Code → Results")
 
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
+if "chat" not in st.session_state:
+    st.session_state.chat = []
 
 
 uploaded_file = st.file_uploader("Upload a CSV file", type="csv")
@@ -138,25 +106,22 @@ if uploaded_file:
     df = pd.read_csv(uploaded_file)
     columns = df.columns.tolist()
 
-    st.subheader("Dataset Preview")
+    st.subheader("Preview")
     st.dataframe(df.head(20), use_container_width=True)
 
     st.subheader("Chat")
 
-    for msg in st.session_state.chat_history:
+    for msg in st.session_state.chat:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
     question = st.chat_input("Ask anything about the data")
 
     if question:
-        st.session_state.chat_history.append({
-            "role": "user",
-            "content": question
-        })
+        st.session_state.chat.append({"role": "user", "content": question})
 
-        with st.spinner("Thinking and executing..."):
-            ai_code = ask_openrouter_code(columns, question)
+        with st.spinner("Thinking..."):
+            ai_code = ask_gemini_code(columns, question)
             clean_code = clean_ai_code(ai_code)
             output = execute_ai_code(df, clean_code)
 
@@ -171,10 +136,7 @@ if uploaded_file:
                 elif output["result"] is not None:
                     st.write(output["result"])
 
-        st.session_state.chat_history.append({
-            "role": "assistant",
-            "content": "Done"
-        })
+        st.session_state.chat.append({"role": "assistant", "content": "Done"})
 
 else:
     st.info("Upload a CSV file to begin")
