@@ -1,20 +1,16 @@
-import os
 import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import google.generativeai as genai
+import ollama
 
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-
-
-def ask_gemini_code(columns, question):
+def ask_ollama_code(columns, question):
     prompt = f"""
 You are a Python data analyst.
 
 You have a pandas DataFrame named df.
-The columns are:
+The DataFrame columns are:
 {", ".join(columns)}
 
 Rules:
@@ -34,12 +30,12 @@ User request:
 {question}
 """
 
-    try:
-        model = genai.GenerativeModel("models/gemini-1.5-flash")
-        response = model.generate_content(prompt)
-        return response.text.strip()
-    except Exception:
-        return "QUOTA_ERROR"
+    response = ollama.chat(
+        model="llava:7b",
+        messages=[{"role": "user", "content": prompt}]
+    )
+
+    return response["message"]["content"].strip()
 
 
 def clean_ai_code(code):
@@ -94,10 +90,13 @@ def execute_ai_code(df, code):
     }
 
 
-st.set_page_config(page_title="AI Data Analyst", layout="wide")
+st.set_page_config(
+    page_title="Local AI Data Analyst",
+    layout="wide"
+)
 
-st.title("AI Data Analyst")
-st.caption("Gemini (Free) • Ask → Code → Execute")
+st.title("Local AI Data Analyst")
+st.caption("Ollama + llava:7b • 100% Offline • CSV → Chat → Analysis")
 
 if "chat" not in st.session_state:
     st.session_state.chat = []
@@ -109,7 +108,7 @@ if uploaded_file:
     df = pd.read_csv(uploaded_file)
     columns = df.columns.tolist()
 
-    st.subheader("Preview")
+    st.subheader("Dataset Preview")
     st.dataframe(df.head(20), use_container_width=True)
 
     st.subheader("Chat")
@@ -126,16 +125,8 @@ if uploaded_file:
             "content": question
         })
 
-        with st.spinner("Thinking..."):
-            ai_code = ask_gemini_code(columns, question)
-
-            if ai_code == "QUOTA_ERROR":
-                with st.chat_message("assistant"):
-                    st.warning(
-                        "Gemini free quota reached. Please wait a bit and try again."
-                    )
-                st.stop()
-
+        with st.spinner("Thinking locally..."):
+            ai_code = ask_ollama_code(columns, question)
             clean_code = clean_ai_code(ai_code)
             output = execute_ai_code(df, clean_code)
 
