@@ -9,7 +9,7 @@ import google.generativeai as genai
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 
-def ask_gemini_code(columns: list[str], question: str) -> str:
+def ask_gemini_code(columns, question):
     prompt = f"""
 You are a Python data analyst.
 
@@ -34,13 +34,15 @@ User request:
 {question}
 """
 
-    model = genai.GenerativeModel("gemini-1.5-flash")
-    response = model.generate_content(prompt)
+    try:
+        model = genai.GenerativeModel("models/gemini-1.5-flash")
+        response = model.generate_content(prompt)
+        return response.text.strip()
+    except Exception:
+        return "QUOTA_ERROR"
 
-    return response.text.strip()
 
-
-def clean_ai_code(code: str) -> str:
+def clean_ai_code(code):
     if code.startswith("```"):
         code = code.split("```")[1]
 
@@ -58,7 +60,7 @@ def clean_ai_code(code: str) -> str:
     return "\n".join(cleaned).strip()
 
 
-def execute_ai_code(df: pd.DataFrame, code: str):
+def execute_ai_code(df, code):
     safe_builtins = {
         "dict": dict,
         "list": list,
@@ -93,8 +95,9 @@ def execute_ai_code(df: pd.DataFrame, code: str):
 
 
 st.set_page_config(page_title="AI Data Analyst", layout="wide")
+
 st.title("AI Data Analyst")
-st.caption("Gemini-powered • Chat → Code → Results")
+st.caption("Gemini (Free) • Ask → Code → Execute")
 
 if "chat" not in st.session_state:
     st.session_state.chat = []
@@ -118,10 +121,21 @@ if uploaded_file:
     question = st.chat_input("Ask anything about the data")
 
     if question:
-        st.session_state.chat.append({"role": "user", "content": question})
+        st.session_state.chat.append({
+            "role": "user",
+            "content": question
+        })
 
         with st.spinner("Thinking..."):
             ai_code = ask_gemini_code(columns, question)
+
+            if ai_code == "QUOTA_ERROR":
+                with st.chat_message("assistant"):
+                    st.warning(
+                        "Gemini free quota reached. Please wait a bit and try again."
+                    )
+                st.stop()
+
             clean_code = clean_ai_code(ai_code)
             output = execute_ai_code(df, clean_code)
 
@@ -136,7 +150,10 @@ if uploaded_file:
                 elif output["result"] is not None:
                     st.write(output["result"])
 
-        st.session_state.chat.append({"role": "assistant", "content": "Done"})
+        st.session_state.chat.append({
+            "role": "assistant",
+            "content": "Done"
+        })
 
 else:
     st.info("Upload a CSV file to begin")
