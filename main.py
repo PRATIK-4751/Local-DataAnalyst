@@ -1,19 +1,21 @@
 import os
+import io
+import contextlib
+import requests
 import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import requests
-import io
-import contextlib
 
 
-# Read Ollama Cloud API key from environment
-OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY")
+# Read OpenRouter API key from environment
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+
+# OpenRouter chat completions endpoint
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 
-
-# Analyze dataset schema so AI understands columns
+# Analyze dataset schema so the AI understands the data
 def analyze_schema(df: pd.DataFrame) -> pd.DataFrame:
     schema = []
 
@@ -41,19 +43,12 @@ def analyze_schema(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(schema)
 
 
-# Ask Ollama Cloud to generate Python analysis code
-OLLAMA_API_URL = "https://api.ollama.com/v1/chat/completions"
-
-def ask_ollama_code(schema: pd.DataFrame, question: str) -> str:
-    headers = {
-        "Authorization": f"Bearer {OLLAMA_API_KEY}",
-        "Content-Type": "application/json"
-    }
-
+# Ask OpenRouter model to generate Python analysis code
+def ask_openrouter_code(schema: pd.DataFrame, question: str) -> str:
     prompt = f"""
 You are a Python data analyst.
 
-You are given a pandas DataFrame called df.
+You are given a pandas DataFrame named df.
 
 Available objects:
 - df (pandas DataFrame)
@@ -64,12 +59,14 @@ Available objects:
 Rules:
 - DO NOT import anything
 - DO NOT access files, OS, or network
-- Assign outputs only to:
-    - result
-    - fig
+- DO NOT use print
+- Assign outputs ONLY to:
+    - result (tables or text)
+    - fig (matplotlib figure)
 - Return ONLY valid Python code
 - No markdown
 - No explanations
+- No comments
 
 Dataset schema:
 {schema.to_string(index=False)}
@@ -78,8 +75,15 @@ User request:
 {question}
 """
 
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://streamlit.app",
+        "X-Title": "AI Data Analyst"
+    }
+
     payload = {
-        "model": "qwen3-coder:480b-cloud",
+        "model": "arcee-ai/trinity-large-preview:free",
         "messages": [
             {"role": "user", "content": prompt}
         ],
@@ -87,18 +91,19 @@ User request:
     }
 
     response = requests.post(
-        OLLAMA_API_URL,
+        OPENROUTER_API_URL,
         headers=headers,
         json=payload,
         timeout=60
     )
 
-    response.raise_for_status()
+    if response.status_code != 200:
+        raise RuntimeError(response.text)
 
     return response.json()["choices"][0]["message"]["content"]
 
 
-# Clean AI output to remove imports or markdown
+# Remove markdown and import statements from AI output
 def clean_ai_code(code: str) -> str:
     code = code.strip()
 
@@ -143,11 +148,8 @@ def execute_ai_code(df: pd.DataFrame, code: str):
         "fig": None
     }
 
-    stdout = io.StringIO()
-
     try:
-        with contextlib.redirect_stdout(stdout):
-            exec(code, {"__builtins__": safe_builtins}, local_env)
+        exec(code, {"__builtins__": safe_builtins}, local_env)
     except Exception as e:
         return {"error": str(e)}
 
@@ -157,20 +159,20 @@ def execute_ai_code(df: pd.DataFrame, code: str):
     }
 
 
-# Streamlit UI configuration
+# Streamlit UI setup
 st.set_page_config(
     page_title="AI Data Analyst",
     layout="wide"
 )
 
 st.title("AI Data Analyst")
-st.caption("Cloud AI • ChatGPT-style • CSV → Analysis → Charts")
+st.caption("ChatGPT-style • Cloud AI • CSV → Analysis → Charts")
 
-# Initialize chat memory
+# Initialize chat history
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
-# CSV uploader
+# CSV upload
 uploaded_file = st.file_uploader("Upload a CSV file", type="csv")
 
 if uploaded_file:
@@ -197,8 +199,8 @@ if uploaded_file:
             "content": question
         })
 
-        with st.spinner("AI is analyzing and executing..."):
-            ai_code = ask_ollama_code(schema, question)
+        with st.spinner("AI is analyzing and executing code..."):
+            ai_code = ask_openrouter_code(schema, question)
             clean_code = clean_ai_code(ai_code)
             output = execute_ai_code(df, clean_code)
 
