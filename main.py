@@ -42,7 +42,14 @@ def analyze_schema(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # Ask Ollama Cloud to generate Python analysis code
+OLLAMA_API_URL = "https://api.ollama.com/v1/chat/completions"
+
 def ask_ollama_code(schema: pd.DataFrame, question: str) -> str:
+    headers = {
+        "Authorization": f"Bearer {OLLAMA_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
     prompt = f"""
 You are a Python data analyst.
 
@@ -57,12 +64,12 @@ Available objects:
 Rules:
 - DO NOT import anything
 - DO NOT access files, OS, or network
-- DO NOT use print
 - Assign outputs only to:
-    - result (tables or text)
-    - fig (matplotlib figure)
+    - result
+    - fig
 - Return ONLY valid Python code
-- No markdown, no explanations
+- No markdown
+- No explanations
 
 Dataset schema:
 {schema.to_string(index=False)}
@@ -71,12 +78,24 @@ User request:
 {question}
 """
 
-    response = ollama_client.chat(
-        model="qwen3-coder:480b-cloud",
-        messages=[{"role": "user", "content": prompt}]
+    payload = {
+        "model": "qwen3-coder:480b-cloud",
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.2
+    }
+
+    response = requests.post(
+        OLLAMA_API_URL,
+        headers=headers,
+        json=payload,
+        timeout=60
     )
 
-    return response["message"]["content"]
+    response.raise_for_status()
+
+    return response.json()["choices"][0]["message"]["content"]
 
 
 # Clean AI output to remove imports or markdown
